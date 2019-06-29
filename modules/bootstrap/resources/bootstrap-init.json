@@ -1,0 +1,16 @@
+{
+    "ignition": {
+        "config": {
+            "replace": {
+                "source": "${cluster_infra_bucket}",
+                "verification": {}
+            }
+        },
+        "timeouts": {},
+        "version": "2.2.0"
+    },
+    "networkd": {},
+    "passwd": {},
+    "storage": {},
+    "systemd": {}
+}
