@@ -1,0 +1,28 @@
+{
+    "ignition": {
+        "config": {
+            "append": [
+                {
+                    "source": "https://api-int.${cluster_domain}:22623/config/master",
+                    "verification": {}
+                }
+            ]
+        },
+        "security": {
+            "tls": {
+                "certificateAuthorities": [
+                    {
+                        "source": "${ca_bundle}",
+                        "verification": {}
+                    }
+                ]
+            }
+        },
+        "timeouts": {},
+        "version": "2.2.0"
+    },
+    "networkd": {},
+    "passwd": {},
+    "storage": {},
+    "systemd": {}
+}
