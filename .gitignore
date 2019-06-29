@@ -1,0 +1,9 @@
+.envrc
+*.tfstate
+*.backup
+*.tfvars
+.git/
+.terraform/
+.upi/
+.tmp/
+
