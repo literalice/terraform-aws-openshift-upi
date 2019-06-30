@@ -261,7 +261,7 @@ upi-1-1-xxxx
   * プライベートゾーンに「Key=kubernetes.io/cluster/<Cluster ID>,Value=owned / Key=Name,Value=<Cluster ID>-int"」でタグ付け
   * こうしておくと、OpenShift構築後に、OpenShiftのDNS管理機能がプライベートゾーンを見つけて、必要なDNS登録を行ってくれるので便利
 * ロードバランサーをDNSに登録
-  * 外部ロードバランサー: `api.<クラスタ名>.<ベースドメイン>` > 外部、内部DNSどちらも登録
+  * 外部ロードバランサー: `api.<クラスタ名>.<ベースドメイン>` > 外部、内部DNSどちらにも登録
   * 内部ロードバランサー: `api-int.<クラスタ名>.<ベースドメイン>` 内部DNSのみ登録
 
 Terraformの定義ファイルを作成したので、これを適用すれば上記のネットワークが作成されます。
@@ -277,6 +277,8 @@ config_dir = ".upi" # openshift-install時に--dirオプションで指定した
 blacklist_az = ["ap-northeast-1a"] # お持ちのAWSアカウント、対象リージョンで、使用できないAZがある場合はここに指定する
 EOF
 
+$ terraform init
+
 $ terraform plan -target module.network
 $ terraform apply -target module.network
 ```
@@ -287,7 +289,7 @@ $ terraform apply -target module.network
 
 ここでの作業は、以下の通りです。
 
-* `openshift-install` コマンドで生成したIgnitionファイル「bootstrap.ign」を、インターネットから取得できる場所に配置する。
+* `openshift-install` コマンドで生成したIgnitionファイル`bootstrap.ign`を、インターネットから取得できる場所に配置する。
   * ここでは、S3に配置する。
 * Red Hat CoreOSのAMI( `rhcos-410.*-hvm` )を指定し、パブリックなサブネットにEC2インスタンスを起動する
   * 以下参照のこと: [AMI一覧](https://docs.openshift.com/container-platform/4.1/installing/installing_aws_user_infra/installing-aws-user-infra.html#installation-aws-user-infra-rhcos-ami_installing-aws-user-infra)
@@ -349,7 +351,7 @@ Jun 29 01:10:37 ip-10-0-103-163 bootkube.sh[1407]: Waiting for etcd cluster...
 
 前述の通り、etcdクラスタを提供するのはマスターノードです。マスターノードを作成して起動する必要があります。
 
-### Control Planeの作成
+### マスターノードの作成
 
 次に、プライベートなサブネットに、マスターノードを作成し、クラスタのControl Planeを起動します。
 
@@ -391,16 +393,16 @@ Jun 29 01:10:37 ip-10-0-103-163 bootkube.sh[1407]: Waiting for etcd cluster...
 }
 ```
 
-ここで、`<api-int-domain>`は内部ロードバランサーのIP、`<ca-bundle>`は、`.upi/master.ign`に記載されている、`data:text/plain;charset=utf-8;base64,ABC…​xYz==`という形式のBase64でエンコードされた証明書です。
+ここで、`<api-int-domain>`は内部ロードバランサーのホスト名、`<ca-bundle>`は、`.upi/master.ign`に記載されている、`data:text/plain;charset=utf-8;base64,ABC…​xYz==`という形式のBase64でエンコードされた証明書です。
 
-正しく指定していれば、マスターノードが起動する時に、このIgnitionファイルの指定に従い、内部ロードバランサーの後ろにいるBootStrapノードから必要なリソースが取得され、Control Planeが起動されるはずです。
+正しく指定していれば、マスターノードが起動する時に、このIgnitionファイルの指定に従い、内部ロードバランサーの後ろにいるBootStrapノードから必要なリソースが取得され、Control Planeが起動するはずです。
 
-これも、Terraformの定義ファイルを作成したので、これを適用すればControl Planeが作成されます。
+これも、Terraformの定義ファイルを作成しました。これを適用すればControl Planeが作成されます。
 
 ```bash
 $ cd terraform-aws-openshift-upi
-$ terraform plan -target module.controlplane -var "config_dir=.upi"
-$ terraform apply -target module.controlplane -var "config_dir=.upi"
+$ terraform plan -target module.controlplane
+$ terraform apply -target module.controlplane
 ```
 
 BootStrapのログを眺めて、etcdを参照できていることを確認してみます。
@@ -448,12 +450,15 @@ Control Planeが起動しているので、ocコマンドでAPIにログイン�
 ```bash
 # インストール時に作成された認証情報を使用する(oc loginしない)
 $ export KUBECONFIG=.upi/auth/kubeconfig
-$ oc status # OpenShift APIの準備ができるまでエラーが返る
+$ oc get pods -A
+$ oc status # OpenShiftのシステムコンテナの準備ができるまでエラーが返る
 ```
 
-これで、Control Planeがデプロイできました。
+これで、Control Planeが起動できました。
 
-なお、この時点で、OpenShiftにデプロイされた[Operatorコンテナ](https://github.com/openshift/cluster-ingress-operator)により、インターネットからOpenShift上のアプリケーションにアクセスするためのELBやRoute53への登録が実施されています。
+なお、この時点でAWSのコンソールを確認すると、インターネットからOpenShift上のアプリケーションにアクセスするためのELBやRoute53への登録が実施されています。
+
+これは、OpenShiftにデプロイされた[Ingress Operator](https://github.com/openshift/cluster-ingress-operator)によるものです。
 
 ### ワーカーノードの用意
 
@@ -463,7 +468,7 @@ OpenShiftのIngress Routerなど、一部のインフラコンポーネントは
 $ oc get pods -A | grep Pending
 ```
 
-このように、一部、デプロイがPendingになっているものがありますね。これらのPodは、ワーカーノードを追加しないと実行されません。
+一部、デプロイがPendingになっているものがありますね。これらのPodは、ワーカーノードを追加しないと実行されません。
 
 OpenShift 4では、AWSなど、[machine-api-operator](https://github.com/openshift/machine-api-operator)が対応しているプラットフォームであれば、
 MachineSetオブジェクトをOpenShiftにデプロイすることで、OpenShift自身がワーカーノードを立ち上げてクラスタに追加してくれます。
@@ -534,3 +539,31 @@ spec:
           userDataSecret:
             name: worker-user-data
 ```
+
+こちらも、Terraformのプロジェクトに同梱したので、以下のように実施してみてください。
+
+```bash
+$ terraform apply -target module.worker
+```
+
+## OpenShiftのインストールが完了したことの確認
+
+これで、OpenShiftがUPIでインストールできたはずです。
+
+以下で、WebコンソールのURL、ログイン情報を確認できるので、ブラウザでログインしてみてください。
+
+```bash
+$ oc get routes -n openshift-console
+NAME        HOST/PORT                                                     PATH   SERVICES    PORT    TERMINATION          WILDCARD
+console     console-openshift-console.apps.<クラスタ名>.<ベースドメイン>             console     https   reencrypt/Redirect   None
+downloads   downloads-openshift-console.apps.<クラスタ名>.<ベースドメイン>           downloads   http    edge                 None
+
+# ユーザー `kubeadmin` のログインパスワード
+$ cat .upi/auth/kubeadmin-password 
+```
+
+## まとめ
+
+UPIは、これまで見てきたように、IPIに比べて極端に複雑です。
+
+まさにOpenShift 4 Hard Wayともいうべき苦難の道ですが、一度実施してみるとOpenShift 4への理解が深まるという点でよいかもしれません。
